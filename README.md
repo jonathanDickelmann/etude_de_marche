@@ -1,6 +1,6 @@
-# etude_de_marche
+# Étude de marché internationale
 
-L'objectif de cette étude est de produire une analyse des groupements de pays dans lesquels une exportation de poulets peut être envisagée.
+L'objectif de cette étude est de produire une analyse des groupements de pays dans lesquels une exportation de viande de volailles peut être envisagée.
 
 L'analyse a été réalisée sous R.
 
@@ -10,6 +10,10 @@ Un deuxième document consacré :
   - à l'analyse exploratoire des données, 
   - à l'ACP pour identifier les groupements de pays et leurs caractéristiques
   - les méthodes de classifications CAH et k-means
+
+![aperçu](https://github.com/jonathanDickelmann/etude_de_marche/blob/main/img/ind.PNG)
+![aperçu](https://github.com/jonathanDickelmann/etude_de_marche/blob/main/img/var.PNG)
+![aperçu](https://github.com/jonathanDickelmann/etude_de_marche/blob/main/img/cah.PNG)
 
 Sources de données 
 - Production de volailles, quantité d’importations en milliers de tonnes (2017) - FAO
