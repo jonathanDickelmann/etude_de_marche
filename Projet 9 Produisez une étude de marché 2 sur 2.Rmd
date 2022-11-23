@@ -1,0 +1,468 @@
+---
+title: "Projet 9 Produisez une étude de marché / Analyse - Classification"
+author: "Jonathan DICKELMANN"
+date: "Novembre 2022"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### 1/ Importation des librairies et données
+
+
+```{r import données,message=FALSE,warning=FALSE}
+#Import des librairies
+library(corrplot) #Schéma de corrélations
+library(FactoMineR) #ACP
+library(missMDA) #Gestion des données manquantes
+library(factoextra) #Graphiques de classification
+library(NbClust) #Méthode de détermination du nombre de clusters K-means
+library(psych) #KMO
+library(knitr) #Librairie pour la mise en forme du rapport
+
+#Import du fichier
+df <- read.csv2("D:/Formation Data Analyst/09_produisez une étude de marché avec R ou Python/Données/DAN-P9-data/df.csv",sep=',',header=TRUE,row.names=1)
+```
+
+- - -
+
+### 2/ Exploration des données
+
+#### 2.1 Étude générale du dataframe
+
+```{r structure}
+#Passage de colonnes en numérique
+df[,c(3:7)] <- sapply(df[,c(3:7)], as.numeric)
+#Changement de noms des colonnes (pour plus de lisibilité sur les graphiques)
+colnames(df) <- c("Production","Importations","Pop","SS.alim","PIB/hab","Stab. politique","Perf. logisitique","Affaires","Continent")
+
+#Dimensions du dataframe
+dim(df)
+#Aperçu général du dataframe
+summary(df)
+
+```
+Ce jeu de données contient **165 individus et 9 variables**, 1 variable est qualitative, les autres quantitatives.
+
+- - -
+
+#### 2.2 Étude des corrélations entre nos variables
+
+Pour avoir un premier aperçu des corrélations, nous pouvons réaliser un **schéma de corrélation** entre variables.  
+La présence de pastilles bleues foncées et rouges nous indiquent déjà des corrélations entre variables
+
+```{r,fig.align = 'center'}
+#Schéma de corrélation
+matrice.corr <- cor(df[,1:8],use="complete.obs")
+corrplot(matrice.corr,method="circle")
+```
+
+- - -
+
+
+#### 2.3 Mesure de l’adéquation de l’échantillonnage (KMO) et Test de sphéricité de Bartlett
+
+Une autre étape pour vérifier si les variables que l'on considère sont corrélées pour que l'ACP donne des bons résultats est la mesure Kaiser-Meyer-Olkin (KMO).
+
+La mesure KMO donne une idée de l'efficacité éventuelle d'une ACP, cette mesure varie netre 0 et 1. **Plus une mesure KMO s'approche de 1, meilleure sera l'ACP.**
+
+```{r}
+#Mesure KMO
+KMO(matrice.corr)
+#Test de bartlett
+#H_0 (hypothèse nulle) : les variables sont globalement indépendantes.
+#H_1 : les variables sont globalement dépendantes.
+cortest.bartlett(matrice.corr,n=165) 
+```
+**L’indice de KMO est de 0,8**, il peut être qualifié d’excellent ou de méritoire. Il nous indique que les corrélations entre les variables sont de bonne qualité. 
+
+Ensuite, le résultat du **test de sphéricité de Bartlett est significatif (p < 0,0005)**. Nous pouvons donc rejeter l’hypothèse nulle voulant que nos données proviennent d’une population pour laquelle la matrice serait une matrice d’identité (variables indépendantes). Les corrélations ne sont donc pas toutes égales à zéro. 
+
+Nous pouvons donc poursuivre l’analyse.
+
+
+- - -
+
+### 3/ Gestion des données manquantes
+
+Plusieurs colonnes comptent des valeurs manquantes que nous allons estimer à l'aide du package missMDA.
+
+
+**Librairie MissMDA**
+
+MissMDA impute les valeurs manquantes de sorte que les valeurs imputées n'ont aucune influence sur les résultats de l'analyse factorielle (pas d'influence dans le sens où les valeurs imputées n'ont aucun poids), et donc les résultats de l'analyse factorielle sont obtenues uniquement avec les valeurs observées.
+
+MissMDA utilise des méthodes de réduction de données, ce qui lui permet d'imputer de façon satisfaisante de gros jeux de données contenant des variables quantitatives et/ou qualitatives. En effet, il impute par ACP (ou ACM, ou AFDM ou AFM) en prenant en compte à la fois les similarités entre individus et les liens entre variables.
+
+```{r MissMDA,results='hide'}
+#Estimation du nombre de dimensions nécessaire à l'ACP : trouve le nombre optimal de composantes pour imputer le jeu de données (scale=True : ACP réduite, method.CV="Kfolds" : plusieurs valeurs sont enlevées simultanément pour mesurer l'erreur de prévision)
+nb <- estim_ncpPCA(df[,1:8],scale=TRUE,ncp.min=0,ncp.max=4,method.cv = "Kfold",nbsim = 50)
+```
+
+```{r}
+#Imputation du jeu de données
+df2 <- imputePCA(df[,1:8],ncp=nb$ncp,scale = TRUE)
+
+#remplacement des valeurs manquantes du df original par les valeurs estimées
+df[,1:8]<-df2$completeObs[,1:8]
+kable(head(df))
+```
+- - -
+
+### 4/ Analyse en composantes principales
+
+<br>
+Notre tableau de données contenant des individus en ligne (les pays) et des variables quantitatives en colonne, **nous réalisons une ACP**.
+
+<br>
+
+#### 4.1 Objectifs de l'ACP
+
+L'objectif de l'ACP va être double :
+
+
+- Étude des individus :
+
+
+Repérer des groupes d'individus homogènes du point de vue de l'ensemble des variables et noter les différences entre les groupes d'individus
+
+
+- Étude des variables :
+
+
+Faire un bilan des ressemblances entre variables et de trouver des indicateurs qui résument beaucoup de variables
+
+<br>
+
+Lancement de l'ACP :
+```{r ACP}
+#Appel de la fonction PCA qui permet de réaliser une ACP (PCA en anglais) en précisant que la 9ème colonne est une variable qualitative supplémentaire
+#L'argument scale.unit = TRUE nous permet de réaliser une ACP normée ici nécessaire car les unités de mesure diffèrent d'une variable à une autre et graph = FALSE indique que nous ne voulons pas de graph en sortie
+res <- PCA(df,quali.sup = 9,scale.unit = TRUE,graph = FALSE)
+
+#Résultats de l'ACP sur les deux 1er facteurs
+summary(res,ncp=2)
+```
+<br>
+
+#### 4.2 Combien d'axes conserver ?
+<br>
+Le pourcentage d'inertie est le pourcentage d'information expliquée par un axe ou un plan.
+
+Le 1er axe explique **44,7 %** de l'inertie totale, le 2ème **22,8 %**.
+
+Les 2 premiers axes de l' analyse expriment **67.41%** de l'inertie totale du jeu de données ; cela signifie que 67.41% de la variabilité totale du nuage des individus (ou des variables) est représentée dans ce plan.
+C'est un pourcentage assez important, et le premier plan représente donc convenablement la variabilité contenue dans une grande part du jeu de données actif.
+
+<br>
+
+Pour savoir combien d'axes garder, plusieurs méthodes possibles :
+
+- On peut s’intéresser qu’à ceux qui possèdent plus d’information que l’équité d’information par axe.
+
+*Taux d’information par axe = Total de l’information/nombre d’axes produits*
+
+Ici nous avons 8 dimensions : 100/8 = **12.5%**
+
+On conserva les 2 premiers axes qui ont un taux supérieur à 12.5 % et résument 67 % de l'information totale.
+
+- La méthode de conserver les axes ayant une valeur propre supérieure à 1 nous indique aussi ne conserver que les deux premiers axes
+
+- L'observation du graphique suggère que seuls ces axes sont porteurs d'une véritable information.
+
+```{r, echo = FALSE, fig.align = 'center', fig.height = 3.5, fig.width = 5.5}
+par(mar = c(2.6, 4.1, 1.1, 2.1))
+ggplot2::ggplot(cbind.data.frame(x=1:nrow(res$eig),y=res$eig[,2])) + ggplot2::aes(x=x, y=y)+ ggplot2::geom_col(fill="blue") + ggplot2::xlab("Dimension") + ggplot2::ylab("Pourcentage d'inertie") + ggplot2::ggtitle("Décomposition de l'inertie totale") + ggplot2::theme_light() + ggplot2::theme(plot.title = ggplot2::element_text(hjust =0.5)) + ggplot2::scale_x_continuous(breaks=1:nrow(res$eig))
+```
+
+En conséquence, la description de l'analyse sera restreinte à ces seuls axes.
+
+<br>
+
+#### 4.3 Graphiques
+
+<br>
+
+**Graphique des individus (ACP)**
+
+<br>
+<center>*Les individus libellés sont ceux ayant la plus grande contribution à la construction du plan.*
+
+<center>*Les individus sont colorés selon leur appartenance aux modalités de la variable Continent.*
+
+```{r, echo = FALSE, fig.align = 'center', fig.height = 6, fig.width = 8}
+plot(res, choix="ind", cex=0.8, title="Contribution des individus aux facteurs 1 et 2", axes=1:2,habillage="Continent",select ="contrib 8")
+```
+<br>
+
+**Graphique des variables (ACP)**
+
+<br>
+
+<center>*Les variables libellées sont celles les mieux représentées sur le plan.*
+
+```{r, echo = FALSE, fig.align = 'center', fig.height = 6, fig.width = 8}
+plot(res, choix="var", cex=0.8, title="Contribution des variables aux facteurs 1 et 2", axes=1:2)
+```
+
+- - -
+
+#### 4.4 Interprétation des axes
+
+**1. Axes 1 :**
+
+- Individus :
+
+La **dimension 1** oppose des individus tels que *Allemagne* et *Japon* (à droite du graphe, caractérisés par une coordonnée fortement positive sur l'axe) à des individus comme *Yémen* et *République centrafricaine* (à gauche du graphe, caractérisés par une coordonnée fortement négative sur l'axe).
+
+- Variables :
+
+Nous avons une corrélation très positive (0,6>= cor <= 0,91) à l'axe 1 pour les variables : *performance logistique, facilité de faire des affaires, le PIB/hab et dans une moindre mesure la stabilité politique*. La variable *prévalence de la sous-alimentation* est très corrélée négativement (-0,75).
+
+- Ainsi :
+
+Les pays caractérisés par une coordonnée positive sur l'axe partagent :
+
+- de fortes valeurs pour les variables *Affaires*, *PIB/hab*, *Perf..logisitique*, *Stab..politique* et *Importations* (de la plus extrême à la moins extrême).
+- de faibles valeurs pour la variable *SS.alim*.
+
+Les pays caractérisés par une coordonnées négative sur l'axe partagent :
+
+- de fortes valeurs pour la variable *SS.alim*.
+- de faibles valeurs pour les variables *Affaires*, *PIB/hab*, *Perf..logisitique*, *Stab..politique*, *Importations* et *Production* (de la plus extrême à la moins extrême).
+
+Pour résumer, ce qui distingue le plus les pays, **c'est leur niveau de développement**, c'est le principal facteur de variabilité.
+
+Notons que les variables qualitatives supplémentaires *Africa* et *Europe* sont extrêmement corrélées à cette dimension (corrélations respectives de 0.98, 0.92).
+
+<br>
+
+**2. Axe 2 :**
+
+- Individus :
+
+La **dimension 2** oppose des individus tels que *Chine, continentale* et *États-Unis d'Amérique* (en haut du graphe, caractérisés par une coordonnées fortement positive sur l'axe)
+à des individus comme *Luxembourg* (en bas du graphe, caractérisés par une coordonnées fortement négative sur l'axe).
+
+- Variables :
+
+Nous avons une corrélation très positive (cor > 0,8) à l'axe 2 pour les variables *population* et *production*. La variable *stabilité politique* est corrélée négativement (-0,56).
+
+- Ainsi :
+
+Les pays caractérisés par une coordonnée positive sur l'axe partagent :
+
+- de fortes valeurs pour les variables *Production* et *Pop* (de la plus extrême à la moins extrême).
+
+Les pays caractérisés par une coordonnée négative sur l'axe partagent :
+
+- de faibles valeurs pour les variables *Production* et *Pop* (de la plus extrême à la moins extrême).
+
+
+La Chine est le principal contributeur à ce second axe (43 %) car elle est à la fois très peuplée et produit beaucoup de tonnes de volailles, ce qui la différencie de l'Inde également peuplée mais produisant moins de volaille (contribution 13 %)
+
+<br>
+
+**3. Plan factoriel :**
+
+Nous pouvons donc résumer notre plan factoriel par un premier axe qui sépare **les pays selon leur niveau de développement** et par un deuxième axe orthogonal qui sépare **les pays selon leur poids démographique et leur capacité de production**. C'est ce qui va différencier principalement les pays car ce premier plan factoriel résume les deux tiers de l'information du jeu de données.
+
+
+
+- - -
+
+
+### 5/ Classifications
+
+<br>
+**Objectifs des classifications**
+
+L'objectif de la classification est de **constituer des groupes d'individus qui se ressemblent du point de vue de l'ensemble des caractères qui les décrivent**. On regroupe donc des individus qui ont des caractéristiques communes.
+
+<br>
+**Les deux types de classification**
+
+Il existe des classifications appelées hiérarchiques pour lesquelles on cherchera à construire un arbre hiérarchique pour voir comment s'organise les objets ou les individus. On va parler ici de **classification ascendante hiérarchique**. 
+
+Et puis des classifications de type **méthode de partitionnement (k-means)** où on va essayer uniquement de constituer des groupes d'individus qui se ressemblent et de constituer une partition.
+
+
+- - -
+
+#### 5.1 Classification ascendante hiérarchique
+
+L'objectif de la classification est de produire une arborescence qui met en évidence les liens hiérarchiques entre les individus ou entre des groupes d'individus. Ces représentations sous forme d'arbre permettent également de détecter un nombre de classes naturel dans une population.
+
+
+**1. Lancement de la CAH** 
+```{r}
+#On lance la fonction HCPC de la librairie factominer qui permet de réaliser une CAH
+#ncp=6 : on garde les premières 6 dimensions de l'ACP, les autres étant considérées comme du bruit
+res.hcpc <- HCPC(res, graph = FALSE)
+
+#Résumé de la méthode employée
+res.hcpc$call$t$tree
+```
+**2. Détermination du nombre de classes** 
+
+- A partir de la perte d'inertie par le regroupement de classes
+```{r, fig.align = 'center', fig.height = 5, fig.width = 7}
+# Nombre suggéré par la fonction HCPC
+plot.HCPC(res.hcpc, choice = 'bar', title = "Diagramme des pertes d'inertie")
+```
+Il y a une forte perte d'inertie lors du passage de 4 à 3 classes, le graphique suggère donc de **garder 4 classes de pays**.
+
+- A partir du dendrogramme
+
+```{r,fig.align = 'center', fig.height = 12, fig.width = 9,message=FALSE,warning=FALSE}
+fviz_dend(res.hcpc,
+          main = "Regroupement hiérarchique",
+          cex = 0.5,                     # Taille du texte
+          palette = "jco",               # Palette de couleur
+          rect = TRUE, rect_fill = TRUE, # Rectangle autour des groupes
+          rect_border = "jco",           # Couleur du rectangle
+          labels_track_height = 0.8      # Augmente l'espace pour le texte
+          )
+```
+**3. Description des classes**
+
+Visualisation des classes à partir du 1er plan factoriel de l'ACP
+
+```{r,fig.align = 'center', fig.height = 6, fig.width = 8}
+plot(res.hcpc, choice = 'map', draw.tree = FALSE, select ="contrib 8", title = 'Graphique des individus')
+```
+
+
+**Description des classes par les individus**
+
+```{r}
+#para donne le parangon, c'est-à-dire l'individu le plus proche du centre de gravité de la classe, c'est l'individu dont les valeurs caractérisent le mieux la classe
+#dist donne la spécifité des individus, c'est-à-dire à quel point un individu appartient à une classe et pas à une autre. On calcul la distance d'un individu au barycentre des autres classes.
+res.hcpc$desc.ind
+```
+- Le *Soudan* est le parangon de la **classe 1**, le *Yémen* est le pays le plus spécifique à cette classe (le plus éloigné des autres classes)
+
+- L'*Albanie* est le parangon de la **classe 2**, la *Turquie* est le pays le plus spécifique à cette classe (le plus éloigné des autres classes)
+
+- Les *États Unis d'Amérique* est le paragon de la **classe 3**, la *Chine* est le pays le plus spécifique à cette classe (le plus éloigné des autres classes)
+
+- L'*Espagne* est le parangon de la **classe 2**, le *Japon* est le pays le plus spécifique à cette classe (le plus éloigné des autres classes)
+
+<br>
+**Description des classes par les variables**
+```{r}
+res.hcpc$desc.var
+```
+La **classe 1** est caractérisée par :
+
+- de fortes valeurs pour la variable *SS.alim*.
+- de faibles valeurs pour les variables *Affaires*, *Perf..logisitique*, *PIB/hab*, *Stab..politique*, *Importations* et *Production* (de la plus extrême à la moins extrême).
+
+La **classe 2** est caractérisée par :
+
+- de fortes valeurs pour la variable *Stab..politique*.
+- de faibles valeurs pour les variables *SS.alim* et *Importations* (de la plus extrême à la moins extrême).
+
+La **classe 3** est caractérisée par :
+
+- de fortes valeurs pour les variables *Production*, *Pop* et *Perf..logisitique* (de la plus extrême à la moins extrême).
+
+La **classe 4** est caractérisée par :
+
+- de fortes valeurs pour les variables *Perf..logisitique*, *PIB/hab*, *Affaires*, *Importations* et *Stab..politique* (de la plus extrême à la moins extrême).
+- de faibles valeurs pour la variable *SS.alim*.
+
+<br>
+**Visualisation des clusters dans l’espace des premières composantes principales**
+
+A partir des résultats, nous pouvons représenter les 4 classes et les nommer
+
+```{r,fig.align = 'center', fig.height = 8, fig.width = 12,message=FALSE,warning=FALSE}
+cahplot <- fviz_cluster(res.hcpc, ellipse = TRUE, repel = TRUE,xlab = "Niveau de développement",ylab = "Poids démographique et de production", main = "Classes de la CAH")
+cahplot + scale_fill_discrete(name = "Classes", labels = c("Pays les moins développés, produisant et important peu", "Pays en développement, important peu", "Pays très peuplés et produisant fortement","Pays développés important beaucoup et facilité de faire des affaires"))
+```
+
+
+#### 5.2 K-means
+
+**Détermination du nombre de classes** 
+
+```{r,fig.align = 'center'}
+#Standardisation des données du df initial
+df.km <- scale(df[,1:8])
+
+#Graphique permettant de déterminer le nombre de clusters à retenir
+fviz_nbclust(df.km, kmeans, method = "wss") +
+    geom_vline(xintercept = 4, linetype = 2)+
+  labs(subtitle = "Méthode du coude")
+```
+Le graphique nous suggère de garder **4 classes**
+
+<br>
+**Lancement de l'algorithme**
+```{r}
+# Calculer k-means avec k = 4, 50 essais
+set.seed(4)
+res.km <- kmeans(df.km, 4, nstart = 50)
+```
+
+**Visualisation des clusters**
+```{r,fig.align = 'center', fig.height = 8, fig.width = 12,message=FALSE,warning=FALSE}
+kmplot <- fviz_cluster(res.km, data = df[,1:8],ellipse = TRUE, repel = TRUE,xlab = "Niveau de développement",ylab = "Poids démographique et de production", main = "Classes des k-means") 
+kmplot + scale_fill_discrete(name = "Classes", labels = c("Pays les moins développés, produisant et important peu", "Pays développés important beaucoup et facilité de faire des affaires", "Pays très peuplés et produisant fortement","Pays en développement, important peu"))
+```
+
+#### 5.3 Comparaison des deux classifications
+
+**Nombre de pays par classe**
+
+```{r}
+#Table CAH
+table (res.hcpc$data.clust$clust)
+#Table K-means (la classe 2 = classe 4 CAH et inversement)
+table (res.km$cluster)
+```
+Les deux classifications ont regroupé quasiment le même nombre de pays par classe (la classe 2 k-means= classe 4 CAH et inversement).
+
+**Regroupement des résultats en 1 seul dataframe**
+```{r}
+#Fusion en 1 dataframe des résultats
+cah <- res.hcpc$data.clust
+km <- data.frame(res.km$cluster)
+comp <- merge(cah,km, by = "row.names")
+comp <- comp[,c(1,11:12)]
+
+#Passage en caractères des classes K-means
+comp$res.km.cluster <- as.character(comp$res.km.cluster)
+
+#Renommage des classes des deux méthodes
+comp$clust <- sub("1", "Pays les moins développés, produisant et important peu", comp$clust)
+comp$clust <- sub("2", "Pays en développement, important peu", comp$clust)
+comp$clust <- sub("3", "Pays très peuplés et produisant fortement", comp$clust)
+comp$clust <- sub("4", "Pays développés important beaucoup et facilité de faire des affaires", comp$clust)
+
+comp$res.km.cluster <- sub("1", "Pays les moins développés, produisant et important peu", comp$res.km.cluster)
+comp$res.km.cluster <- sub("2", "Pays développés important beaucoup et facilité de faire des affaires", comp$res.km.cluster)
+comp$res.km.cluster <- sub("3", "Pays très peuplés et produisant fortement", comp$res.km.cluster)
+comp$res.km.cluster <- sub("4", "Pays en développement, important peu", comp$res.km.cluster)
+
+#Passage des pays en noms des lignes
+row.names(comp) <- comp[,1]
+comp <- comp[,-1]
+
+#Renommage des colonnes
+colnames(comp) <- c("Classes CAH","Classes K-means")
+
+#Résultats
+kable(head(comp))
+
+#Affichage des pays classés différement
+comp$comparaison <- comp$`Classes CAH` == comp$`Classes K-means`
+subset(comp,comp$comparaison=="FALSE")
+```
+
