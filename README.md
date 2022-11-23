@@ -5,6 +5,7 @@ L'objectif de cette étude est de produire une analyse des groupements de pays d
 L'analyse a été réalisée sous R.
 
 Un premier document est consacré au nettoyage des données et la fusion des fichiers sources
+
 Un deuxième document consacré :
   - à l'analyse exploratoire des données, 
   - à l'ACP pour identifier les groupements de pays et leurs caractéristiques
