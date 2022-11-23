@@ -11,9 +11,9 @@ Un deuxième document consacré :
   - les méthodes de classifications CAH et k-means
 
 Sources de données 
- Production de volailles, quantité d’importations en milliers de tonnes (2017) - FAO
- PIB/hab en $ PPA (2017) - Banque mondiale
- Population des pays, prévalence de la sous-alimentation (%) (2017) - FAO
- Stabilité politique des pays (2017) - FAO
- Indice global de performance logistique (2018) - Banque mondiale
- Indice global de la facilité de faire des affaires (2019) - Banque mondiale
+- Production de volailles, quantité d’importations en milliers de tonnes (2017) - FAO
+- PIB/hab en $ PPA (2017) - Banque mondiale
+- Population des pays, prévalence de la sous-alimentation (%) (2017) - FAO
+- Stabilité politique des pays (2017) - FAO
+- Indice global de performance logistique (2018) - Banque mondiale
+- Indice global de la facilité de faire des affaires (2019) - Banque mondiale
